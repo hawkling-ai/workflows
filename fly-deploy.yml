@@ -1,0 +1,49 @@
+name: Reusable Fly Deploy
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        description: 'Branch to deploy from'
+        required: false
+        type: string
+        default: 'main'
+      slack-enabled:
+        description: 'Enable Slack notifications'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      FLY_API_TOKEN:
+        required: true
+      SLACK_WEBHOOK_URL:
+        required: false
+
+jobs:
+  deploy:
+    name: Deploy app
+    runs-on: ubuntu-latest
+    concurrency: deploy-group
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  notify:
+    needs: deploy
+    if: always() && inputs.slack-enabled
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": "${{ needs.deploy.result == 'success' && '✅ Fly.io deployment succeeded! 🚀' || '❌ Fly.io deployment failed! 🔥' }}\nRepository: ${{ github.repository }}\nBranch: ${{
+github.ref_name }}\nCommit: ${{ github.sha }}\n${{ needs.deploy.result != 'success' && format('See workflow run: https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) ||
+'' }}"
+            }
